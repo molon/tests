@@ -58,6 +58,45 @@ func TestAddressable(t *testing.T) {
 	}
 }
 
+func TestElem(t *testing.T) {
+	{
+		// reflect.Value.Elem() 取出指针指向的值
+		var a int = 1
+		var p *int = &a
+		assert.Equal(t, 1, reflect.ValueOf(p).Elem().Interface())
+	}
+
+	{
+		// reflect.Type.Elem() 取出指针指向的类型
+		var a int = 1
+		var p *int = &a
+		assert.Equal(t, reflect.TypeOf(a), reflect.TypeOf(p).Elem())
+	}
+}
+
+func TestNew(t *testing.T) {
+	{
+		// reflect.New() 创建一个指针
+		var a int
+		p := reflect.New(reflect.TypeOf(a))
+		assert.Equal(t, 0, p.Elem().Interface())
+	}
+
+	{
+		// reflect.New() 创建一个指向指针的指针
+		var a int
+		p := reflect.New(reflect.TypeOf(&a))
+		assert.Nil(t, p.Elem().Interface())
+	}
+
+	{
+		// reflect.New() 创建一个相同类型的空值，这样比使用 reflect.Zero() 更舒服，因为这样是可寻址的
+		var a int = 1
+		p := reflect.New(reflect.TypeOf(a)).Elem()
+		assert.Equal(t, 0, p.Interface())
+	}
+}
+
 func TestTypeOf(t *testing.T) {
 	// 总的来说，TypeOf 和 ValueOf.Type() 行为一致，但是对于 nil interface 的情况有些许特别
 	{
