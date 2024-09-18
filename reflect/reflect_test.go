@@ -155,3 +155,13 @@ func TestUnmarshalToNew(t *testing.T) {
 		assert.NotEqual(t, p, newP)
 	}
 }
+
+// 偶尔这个方法会比较方便，匹配 IsNil 的情况
+func CanNil(kind reflect.Kind) bool {
+	switch kind {
+	case reflect.Chan, reflect.Func, reflect.Map, reflect.Ptr, reflect.UnsafePointer, reflect.Interface, reflect.Slice:
+		return true
+	default:
+		return false
+	}
+}
