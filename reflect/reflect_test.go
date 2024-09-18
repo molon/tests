@@ -1,6 +1,7 @@
 package reflect
 
 import (
+	"encoding/json"
 	"reflect"
 	"testing"
 
@@ -90,5 +91,67 @@ func TestTypeOf(t *testing.T) {
 		var iface any = val
 		assert.Equal(t, reflect.TypeOf(iface), reflect.TypeOf(1))
 		assert.Equal(t, reflect.TypeOf(iface), reflect.ValueOf(iface).Type())
+	}
+}
+
+// UnmarshalToNew unmarshals JSON data into a new value of the same type as v.
+func UnmarshalToNew(data []byte, v any) (any, error) {
+	// Get the type of v. If v is a nil value with no type (e.g., nil interface), vType will be nil.
+	vType := reflect.TypeOf(v)
+	if vType == nil {
+		// If v is a nil value with no type, unmarshal into a map[string]interface{}.
+		var cp any
+		err := json.Unmarshal(data, &cp)
+		if err != nil {
+			return nil, err
+		}
+		return cp, nil
+	}
+
+	// Create a new instance of v's type. cp will be of the same type as v.
+	// 注意这是一个好的方式，如果使用 reflect.Zero(vType) 会导致不可寻址，而这个是可寻址的，且刚好满足了 json.Unmarshal 的取地址
+	cp := reflect.New(vType).Elem()
+	err := json.Unmarshal(data, cp.Addr().Interface())
+	if err != nil {
+		return nil, err
+	}
+
+	return cp.Interface(), nil
+}
+
+func TestUnmarshalToNew(t *testing.T) {
+	type Person struct {
+		Name string `json:"name"`
+		Age  int    `json:"age"`
+	}
+
+	{
+		// 传入一个值，返回一个新的值
+		data := []byte(`{"name":"Alice","age":30}`)
+		var p Person
+		newP, err := UnmarshalToNew(data, p)
+		assert.NoError(t, err)
+		assert.Equal(t, Person{Name: "Alice", Age: 30}, newP)
+		assert.NotEqual(t, p, newP)
+	}
+
+	{
+		// 传入一个指针，返回一个新的指针
+		data := []byte(`{"name":"Alice","age":30}`)
+		var p *Person
+		newP, err := UnmarshalToNew(data, p)
+		assert.NoError(t, err)
+		assert.Equal(t, &Person{Name: "Alice", Age: 30}, newP)
+		assert.NotEqual(t, p, newP)
+	}
+
+	{
+		// 如果传入的值是 nil interface ，会返回 map[string]any , 和 json.Unmarshal 的默认行为保持一致
+		data := []byte(`{"name":"Alice","age":30}`)
+		var p any
+		newP, err := UnmarshalToNew(data, p)
+		assert.NoError(t, err)
+		assert.Equal(t, map[string]interface{}{"age": float64(30), "name": "Alice"}, newP)
+		assert.NotEqual(t, p, newP)
 	}
 }
