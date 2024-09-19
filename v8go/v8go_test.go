@@ -29,29 +29,34 @@ func TestTerminateExecution(t *testing.T) {
 	}
 	`
 
-	vm := v8go.NewContext()
+	vm := v8go.NewIsolate()
+	defer vm.Dispose()
+	// IMPORTANT: NewContext 支持不指定参数调用，但是如果不显式指定 Isolate 的话，就很容易忘记执行 Isolate.Dispose() ，
+	// 而 v8ctx.Close() 也不会帮助调用其 Isolate().Dispose() 所以最好养成好习惯
+	v8ctx := v8go.NewContext(vm)
+	defer v8ctx.Close()
 
 	time.AfterFunc(100*time.Millisecond, func() {
 		// 可以在另外一个线程中调用
-		vm.Isolate().TerminateExecution()
+		v8ctx.Isolate().TerminateExecution()
 	})
-	val, err := vm.RunScript(SCRIPT, "")
+	val, err := v8ctx.RunScript(SCRIPT, "")
 	assert.Nil(t, val)
 	assert.ErrorContains(t, err, "ExecutionTerminated")
 
 	{
-		// 可以看到即使上面的被中断了，下面的 vm.RunScript() 仍然可以正常执行
-		val, err := vm.RunScript(`"hello world"`, "")
+		// 可以看到即使上面的被中断了，下面的 v8ctx.RunScript() 仍然可以正常执行
+		val, err := v8ctx.RunScript(`"hello world"`, "")
 		assert.Nil(t, err)
 		assert.Equal(t, "hello world", val.String())
 	}
 
-	vm.Isolate().TerminateExecution()
+	v8ctx.Isolate().TerminateExecution()
 
 	{
-		// 可以看到即使上面执行了 TerminateExecution ，下面的 vm.RunScript() 仍然可以正常执行
+		// 可以看到即使上面执行了 TerminateExecution ，下面的 v8ctx.RunScript() 仍然可以正常执行
 		// IMPORTANT: 所以这个和 goja 的行为是不一样的，goja 的行为是在无脚本执行时也可标记中断，然后其会影响下一次的脚本执行
-		val, err := vm.RunScript(`"hello world"`, "")
+		val, err := v8ctx.RunScript(`"hello world"`, "")
 		assert.Nil(t, err)
 		assert.Equal(t, "hello world", val.String())
 	}
@@ -96,13 +101,16 @@ func TestWrapRun(t *testing.T) {
 	}
 	`
 
-	vm := v8go.NewContext()
+	vm := v8go.NewIsolate()
+	defer vm.Dispose()
+	v8ctx := v8go.NewContext(vm)
+	defer v8ctx.Close()
 	{
 		// 可以看到 ctx 超时按预期工作
 		start := time.Now()
 		ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 		defer cancel()
-		val, terminated, err := WrapRun(ctx, vm, func(v8ctx *v8go.Context) (*v8go.Value, error) {
+		val, terminated, err := WrapRun(ctx, v8ctx, func(v8ctx *v8go.Context) (*v8go.Value, error) {
 			return v8ctx.RunScript(SCRIPT, "")
 		})
 		assert.Nil(t, val)
@@ -116,7 +124,7 @@ func TestWrapRun(t *testing.T) {
 	{
 		// 可正常执行其他脚本，按预期工作
 		ctx := context.Background()
-		val, terminated, err := WrapRun(ctx, vm, func(v8ctx *v8go.Context) (*v8go.Value, error) {
+		val, terminated, err := WrapRun(ctx, v8ctx, func(v8ctx *v8go.Context) (*v8go.Value, error) {
 			return v8ctx.RunScript("1 + 2", "")
 		})
 		assert.Nil(t, err)
@@ -124,12 +132,12 @@ func TestWrapRun(t *testing.T) {
 		assert.Equal(t, false, terminated)
 	}
 
-	vm.Isolate().TerminateExecution()
+	v8ctx.Isolate().TerminateExecution()
 
 	{
 		// 可正常执行其他脚本，按预期工作
 		ctx := context.Background()
-		val, terminated, err := WrapRun(ctx, vm, func(v8ctx *v8go.Context) (*v8go.Value, error) {
+		val, terminated, err := WrapRun(ctx, v8ctx, func(v8ctx *v8go.Context) (*v8go.Value, error) {
 			return v8ctx.RunScript("1 + 2", "")
 		})
 		assert.Nil(t, err)
@@ -137,3 +145,68 @@ func TestWrapRun(t *testing.T) {
 		assert.Equal(t, false, terminated)
 	}
 }
+
+func TestRetainedValueCount(t *testing.T) {
+	vm := v8go.NewIsolate()
+	defer vm.Dispose()
+	v8ctx := v8go.NewContext(vm)
+	defer v8ctx.Close()
+	assert.Equal(t, 0, v8ctx.RetainedValueCount())
+
+	val, err := v8ctx.RunScript(`var a = 1`, "")
+	assert.Nil(t, err)
+	assert.True(t, val.IsUndefined())
+	assert.Equal(t, 1, v8ctx.RetainedValueCount())
+
+	val, err = v8ctx.RunScript(`var b = 1`, "")
+	assert.Nil(t, err)
+	assert.True(t, val.IsUndefined())
+	assert.Equal(t, 2, v8ctx.RetainedValueCount())
+
+	// 可以看到即使是上面已经有的变量，再次赋值也会增加 retained value
+	// 所以这个 retained value 是一个脚本执行返回值的计数罢了
+	val, err = v8ctx.RunScript(`a = 2`, "")
+	assert.Nil(t, err)
+	assert.Equal(t, int64(2), val.Integer()) // 这样是会返回 a 的值的，和 chrome console 表现一致
+	assert.Equal(t, 3, v8ctx.RetainedValueCount())
+
+	val, err = v8ctx.RunScript(`88`, "")
+	assert.Nil(t, err)
+	assert.Equal(t, int64(88), val.Integer())
+	assert.Equal(t, 4, v8ctx.RetainedValueCount())
+
+	// 如果执行错误，最终这个计数才不会增加
+	val, err = v8ctx.RunScript(`c`, "")
+	assert.ErrorContains(t, err, "ReferenceError: c is not defined")
+	assert.Nil(t, val)
+	assert.Equal(t, 4, v8ctx.RetainedValueCount())
+}
+
+// // TODO: 准备依赖此去测试其内存特点呢，还没测出来
+// func TestStat(t *testing.T) {
+// 	vm := v8go.NewIsolate()
+// 	defer vm.Dispose()
+
+// 	// v8ctx := v8go.NewContext(vm)
+// 	// defer v8ctx.Close()
+
+// 	// val, err := v8ctx.RunScript(`var a = 1`, "")
+// 	// assert.Nil(t, err)
+// 	// assert.True(t, val.IsUndefined())
+
+// 	last := ""
+// 	for i := 0; i < 10; i++ {
+// 		v8ctx := v8go.NewContext(vm)
+// 		val, err := v8ctx.RunScript(`(function() { return 2 })()`, "")
+// 		assert.Nil(t, err)
+// 		assert.Equal(t, int64(2), val.Integer())
+// 		v8ctx.Close()
+
+// 		dataStat, _ := json.Marshal(vm.GetHeapStatistics())
+// 		stat := string(dataStat)
+// 		if last != stat {
+// 			log.Printf("%d: %s", i, stat)
+// 			last = stat
+// 		}
+// 	}
+// }
