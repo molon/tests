@@ -58,28 +58,34 @@ func TestTerminateExecution(t *testing.T) {
 }
 
 // 结合上述特点，封装一个方法来实现
+// 为什么要返回 terminated ？
+// 因为有些场景下是执行过 TerminateExecution 的 Isolate 是不可恢复的，所以此处反馈给调用方
 func WrapRun(
 	ctx context.Context,
 	v8ctx *v8go.Context,
 	f func(v8ctx *v8go.Context) (*v8go.Value, error),
-) (result *v8go.Value, err error) {
+) (result *v8go.Value, terminated bool, err error) {
 	if ctx.Err() != nil {
-		return nil, errors.Wrap(ctx.Err(), "context already done")
+		return nil, false, errors.Wrap(ctx.Err(), "context already done")
 	}
 
 	stop := context.AfterFunc(ctx, func() {
 		v8ctx.Isolate().TerminateExecution()
 	})
-	defer stop()
+	defer func() {
+		if !stop() {
+			terminated = true
+		}
+	}()
 
 	result, err = f(v8ctx)
 	if err != nil {
 		if ctx.Err() != nil {
-			return nil, errors.Wrap(ctx.Err(), "failed to run")
+			return nil, false, errors.Wrap(ctx.Err(), "failed to run")
 		}
-		return nil, errors.Wrap(err, "failed to run")
+		return nil, false, errors.Wrap(err, "failed to run")
 	}
-	return result, nil
+	return result, false, nil
 }
 
 func TestWrapRun(t *testing.T) {
@@ -96,10 +102,11 @@ func TestWrapRun(t *testing.T) {
 		start := time.Now()
 		ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 		defer cancel()
-		val, err := WrapRun(ctx, vm, func(v8ctx *v8go.Context) (*v8go.Value, error) {
+		val, terminated, err := WrapRun(ctx, vm, func(v8ctx *v8go.Context) (*v8go.Value, error) {
 			return v8ctx.RunScript(SCRIPT, "")
 		})
 		assert.Nil(t, val)
+		assert.Equal(t, true, terminated)
 		assert.ErrorIs(t, err, context.DeadlineExceeded)
 		since := time.Since(start)
 		assert.GreaterOrEqual(t, since, 200*time.Millisecond)
@@ -109,11 +116,12 @@ func TestWrapRun(t *testing.T) {
 	{
 		// 可正常执行其他脚本，按预期工作
 		ctx := context.Background()
-		val, err := WrapRun(ctx, vm, func(v8ctx *v8go.Context) (*v8go.Value, error) {
+		val, terminated, err := WrapRun(ctx, vm, func(v8ctx *v8go.Context) (*v8go.Value, error) {
 			return v8ctx.RunScript("1 + 2", "")
 		})
 		assert.Nil(t, err)
 		assert.Equal(t, "3", val.String())
+		assert.Equal(t, false, terminated)
 	}
 
 	vm.Isolate().TerminateExecution()
@@ -121,10 +129,11 @@ func TestWrapRun(t *testing.T) {
 	{
 		// 可正常执行其他脚本，按预期工作
 		ctx := context.Background()
-		val, err := WrapRun(ctx, vm, func(v8ctx *v8go.Context) (*v8go.Value, error) {
+		val, terminated, err := WrapRun(ctx, vm, func(v8ctx *v8go.Context) (*v8go.Value, error) {
 			return v8ctx.RunScript("1 + 2", "")
 		})
 		assert.Nil(t, err)
 		assert.Equal(t, "3", val.String())
+		assert.Equal(t, false, terminated)
 	}
 }

@@ -88,9 +88,9 @@ func WrapRun(
 	ctx context.Context,
 	runtime *goja.Runtime,
 	f func(runtime *goja.Runtime) (goja.Value, error),
-) (result goja.Value, err error) {
+) (result goja.Value, interrupted bool, err error) {
 	if ctx.Err() != nil {
-		return nil, errors.Wrap(ctx.Err(), "context already done")
+		return nil, false, errors.Wrap(ctx.Err(), "context already done")
 	}
 
 	// 直接在 f 运行之前保证之前的 Interrupted 标记被清除，此方法内部其实只是执行了一个 atomic.Store 所以成本其实很低
@@ -99,16 +99,20 @@ func WrapRun(
 	stop := context.AfterFunc(ctx, func() {
 		runtime.Interrupt("halt")
 	})
-	defer stop()
+	defer func() {
+		if !stop() {
+			interrupted = true
+		}
+	}()
 
 	result, err = f(runtime)
 	if err != nil {
 		if ctx.Err() != nil {
-			return nil, errors.Wrap(ctx.Err(), "failed to run")
+			return nil, false, errors.Wrap(ctx.Err(), "failed to run")
 		}
-		return nil, errors.Wrap(err, "failed to run")
+		return nil, false, errors.Wrap(err, "failed to run")
 	}
-	return result, nil
+	return result, false, nil
 }
 
 func TestWrapRun(t *testing.T) {
@@ -125,10 +129,11 @@ func TestWrapRun(t *testing.T) {
 		start := time.Now()
 		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 		defer cancel()
-		val, err := WrapRun(ctx, vm, func(runtime *goja.Runtime) (goja.Value, error) {
+		val, interrupted, err := WrapRun(ctx, vm, func(runtime *goja.Runtime) (goja.Value, error) {
 			return runtime.RunString(SCRIPT)
 		})
 		assert.Nil(t, val)
+		assert.Equal(t, true, interrupted)
 		assert.ErrorIs(t, err, context.DeadlineExceeded)
 		since := time.Since(start)
 		assert.GreaterOrEqual(t, since, 100*time.Millisecond)
@@ -138,11 +143,12 @@ func TestWrapRun(t *testing.T) {
 	{
 		// 可正常执行其他脚本，按预期工作
 		ctx := context.Background()
-		val, err := WrapRun(ctx, vm, func(runtime *goja.Runtime) (goja.Value, error) {
+		val, interrupted, err := WrapRun(ctx, vm, func(runtime *goja.Runtime) (goja.Value, error) {
 			return runtime.RunString("1 + 2")
 		})
 		assert.Nil(t, err)
 		assert.Equal(t, "3", val.String())
+		assert.Equal(t, false, interrupted)
 	}
 
 	vm.Interrupt("halt")
@@ -150,10 +156,11 @@ func TestWrapRun(t *testing.T) {
 	{
 		// 可正常执行其他脚本，按预期工作
 		ctx := context.Background()
-		val, err := WrapRun(ctx, vm, func(runtime *goja.Runtime) (goja.Value, error) {
+		val, interrupted, err := WrapRun(ctx, vm, func(runtime *goja.Runtime) (goja.Value, error) {
 			return runtime.RunString("1 + 2")
 		})
 		assert.Nil(t, err)
 		assert.Equal(t, "3", val.String())
+		assert.Equal(t, false, interrupted)
 	}
 }
