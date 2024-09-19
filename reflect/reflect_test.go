@@ -97,6 +97,24 @@ func TestNew(t *testing.T) {
 	}
 }
 
+func TestNil(t *testing.T) {
+	{
+		var a *int
+		assert.True(t, reflect.ValueOf(a).IsNil())
+	}
+	{
+		var a **int
+		assert.True(t, reflect.ValueOf(a).IsNil())
+	}
+	{
+		// IMPORTANT: 注意这里传入的是取了地址的
+		// 可以理解为给空指针取地址得到的变量已经不是 nil 了，只是它的值是一个 nil 的指针，它不是 nil
+		// 传入的是它，自然而然不是 nil
+		var a *int
+		assert.False(t, reflect.ValueOf(&a).IsNil())
+	}
+}
+
 func TestTypeOf(t *testing.T) {
 	// 总的来说，TypeOf 和 ValueOf.Type() 行为一致，但是对于 nil interface 的情况有些许特别
 	{
