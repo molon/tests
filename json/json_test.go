@@ -6,6 +6,7 @@ import (
 
 	"github.com/samber/lo"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestUnmarshal(t *testing.T) {
@@ -138,4 +139,94 @@ func TestUnmarshalGeneric(t *testing.T) {
 	newPerson, err := Unmarshal[*Person](data)
 	assert.NoError(t, err)
 	assert.Equal(t, &Person{Name: "Alice", Age: 30}, newPerson)
+}
+
+type A struct {
+	ID string `json:"id,omitempty"`
+}
+
+func (v *A) GetID() string {
+	return v.ID
+}
+
+type B struct {
+	ID string `json:"id,omitempty"`
+}
+
+func (v *B) GetID() string {
+	return v.ID
+}
+
+type C struct {
+	A
+}
+
+type D struct {
+	A
+	B
+}
+
+type Identifiable interface {
+	GetID() string
+}
+
+type E struct {
+	A
+	Identifiable
+}
+
+type F struct {
+	Name string `json:"name"`
+}
+
+type G struct {
+	A
+	F
+}
+
+type H struct {
+	F
+	Identifiable
+}
+
+func TestDuplicateFieldName(t *testing.T) {
+	{
+		result, err := json.Marshal(C{A: A{ID: "a"}})
+		require.NoError(t, err)
+		if !assert.JSONEq(t, `{"id":"a"}`, string(result)) {
+			t.Log(string(result))
+		}
+	}
+	{
+		result, err := json.Marshal(D{A: A{ID: "a"}, B: B{ID: "b"}})
+		require.NoError(t, err)
+		if !assert.JSONEq(t, `{}`, string(result)) {
+			t.Log(string(result))
+		}
+		// 以上说明存在 embed 里同名的话，其实俩都会被结果里忽略
+	}
+	{
+		result, err := json.Marshal(E{A: A{ID: "a"}, Identifiable: &B{ID: "b"}})
+		require.NoError(t, err)
+		if !assert.JSONEq(t, `{"Identifiable":{"id":"b"},"id":"a"}`, string(result)) {
+			t.Log(string(result))
+		}
+		// 以上说明 embed 一个 interface 的话，最终其不会把字段作为 embed 的 json 字段
+	}
+	{
+		result, err := json.Marshal(G{A: A{ID: "a"}, F: F{Name: "f"}})
+		require.NoError(t, err)
+		if !assert.JSONEq(t, `{"id":"a","name":"f"}`, string(result)) {
+			t.Log(string(result))
+		}
+		// 以上说明 embed 一个非 interface 的话，确实还是会把字段作为 embed 的 json 字段
+	}
+	{
+		result, err := json.Marshal(H{F: F{Name: "f"}, Identifiable: &B{ID: "b"}})
+		require.NoError(t, err)
+		if !assert.JSONEq(t, `{"name":"f","Identifiable":{"id":"b"}}`, string(result)) {
+			t.Log(string(result))
+		}
+		// 以上说明 embed 一个 interface 的话，无论其是否有同名字段，都不会把 interface 字段作为 embed 的 json 字段
+	}
 }
