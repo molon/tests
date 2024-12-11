@@ -54,7 +54,7 @@ func TestOr(t *testing.T) {
 		require.Nil(t, err)
 		require.Len(t, kvs, 2)
 	}
-	// 所以 Or 和 Where 是平级的，且不会有优先级问题
+	// 所以 Or 和 Where 是平级的，且不会有优先级问题，但是依然不建议这么写，容易引起误解
 
 	{
 		kvs := []*KV{}
@@ -71,4 +71,6 @@ func TestOr(t *testing.T) {
 		require.Nil(t, err)
 		require.Len(t, kvs, 2)
 	}
+
+	// TIPS: 但是后续发现如果 Model 里存在 DeletedAt 的话，行为会和上面的不一致，注意不要被这个坑到，之后再补充测试，
 }
