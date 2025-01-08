@@ -148,9 +148,23 @@ func TestAssociation(t *testing.T) {
 		require.NoError(t, db.Where("address_line = ?", "123 Street").First(&user.Addresses).Error)
 
 		user.Addresses[0].AddressLine = "789 Boulevard"
+		firstAddress := user.Addresses[0]
 		require.NoError(t, db.Save(user).Error) // 不会进行关联更新
 		require.NoError(t, db.Where("address_line = ?", "123 Street").First(&user.Addresses).Error)
 		require.ErrorIs(t, db.Where("address_line = ?", "789 Boulevard").First(&user.Addresses).Error, gorm.ErrRecordNotFound)
+
+		user.Addresses = []Address{firstAddress}
+		require.NoError(t, db.Session(&gorm.Session{FullSaveAssociations: true}).Save(&user).Error) // 会进行关联更新
+		require.NoError(t, db.Where("address_line = ?", "789 Boulevard").First(&user.Addresses).Error)
+		require.NoError(t, db.Where("address_line = ?", "456 Avenue").First(&user.Addresses).Error) // 但是另外一个不会被删除，就很沙雕
+		addresses := []Address{}
+		require.NoError(t, db.Where("user_id = ?", user.ID).Find(&addresses).Error)
+		require.Len(t, addresses, 2) // 但是另外一个不会被删除，就很沙雕，几乎没法用这个破玩意
+
+		// 不会进行关联更新，还是 .Omit(clause.Associations) 的优先级会更高，这很好
+		firstAddress.AddressLine = "666 Boulevard"
+		require.NoError(t, db.Session(&gorm.Session{FullSaveAssociations: true}).Omit(clause.Associations).Save(&user).Error)
+		require.ErrorIs(t, db.Where("address_line = ?", "666 Boulevard").First(&user.Addresses).Error, gorm.ErrRecordNotFound)
 
 		db.Exec("TRUNCATE TABLE users")
 		db.Exec("TRUNCATE TABLE addresses")
