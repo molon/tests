@@ -102,7 +102,7 @@ func TestAssociation(t *testing.T) {
 		require.NoError(t, db.Where("name = ?", "Alice").First(&user).Error)
 		require.NoError(t, db.Where("address_line = ?", "123 Street").First(&user.Addresses).Error)
 
-		t.Logf("User: %+v", user)
+		// t.Logf("User: %+v", user)
 		user.Addresses[0].AddressLine = "789 Boulevard"
 		firstAddress := user.Addresses[0]
 		require.NoError(t, db.Updates(user).Error) // 不会进行关联更新
@@ -147,6 +147,11 @@ func TestAssociation(t *testing.T) {
 		require.NoError(t, db.Where("name = ?", "Alice").First(&user).Error)
 		require.NoError(t, db.Where("address_line = ?", "123 Street").First(&user.Addresses).Error)
 
+		user.Addresses[0].AddressLine = "789 Boulevard"
+		require.NoError(t, db.Save(user).Error) // 不会进行关联更新
+		require.NoError(t, db.Where("address_line = ?", "123 Street").First(&user.Addresses).Error)
+		require.ErrorIs(t, db.Where("address_line = ?", "789 Boulevard").First(&user.Addresses).Error, gorm.ErrRecordNotFound)
+
 		db.Exec("TRUNCATE TABLE users")
 		db.Exec("TRUNCATE TABLE addresses")
 	}
@@ -167,4 +172,6 @@ func TestAssociation(t *testing.T) {
 		db.Exec("TRUNCATE TABLE users")
 		db.Exec("TRUNCATE TABLE addresses")
 	}
+
+	// 综上所述，Create 和 Save 非必要最好添加 .Omit(clause.Associations) ，以免非预期的语句执行
 }
