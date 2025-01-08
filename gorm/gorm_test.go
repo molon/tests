@@ -6,6 +6,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/theplant/testenv"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 	"gorm.io/gorm/logger"
 )
 
@@ -21,7 +22,7 @@ func TestMain(m *testing.M) {
 	db = env.DB
 	db.Logger = db.Logger.LogMode(logger.Info)
 
-	if err = db.AutoMigrate(&KV{}); err != nil {
+	if err = db.AutoMigrate(&KV{}, &User{}, &Address{}); err != nil {
 		panic(err)
 	}
 
@@ -73,4 +74,97 @@ func TestOr(t *testing.T) {
 	}
 
 	// TIPS: 但是后续发现如果 Model 里存在 DeletedAt 的话，行为会和上面的不一致，注意不要被这个坑到，之后再补充测试，
+}
+
+type User struct {
+	gorm.Model
+	Name      string
+	Addresses []Address
+}
+
+type Address struct {
+	gorm.Model
+	AddressLine string
+	UserID      uint
+	User        User
+}
+
+func TestAssociation(t *testing.T) {
+	{
+		user := User{
+			Name: "Alice",
+			Addresses: []Address{
+				{AddressLine: "123 Street"},
+				{AddressLine: "456 Avenue"},
+			},
+		}
+		require.NoError(t, db.Create(&user).Error) // 会进行关联创建
+		require.NoError(t, db.Where("name = ?", "Alice").First(&user).Error)
+		require.NoError(t, db.Where("address_line = ?", "123 Street").First(&user.Addresses).Error)
+
+		t.Logf("User: %+v", user)
+		user.Addresses[0].AddressLine = "789 Boulevard"
+		firstAddress := user.Addresses[0]
+		require.NoError(t, db.Updates(user).Error) // 不会进行关联更新
+		require.NoError(t, db.Where("address_line = ?", "123 Street").First(&user.Addresses).Error)
+		require.ErrorIs(t, db.Where("address_line = ?", "789 Boulevard").First(&user.Addresses).Error, gorm.ErrRecordNotFound)
+		require.NoError(t, db.Updates(firstAddress).Error)
+		require.NoError(t, db.Where("address_line = ?", "789 Boulevard").First(&user.Addresses).Error)
+
+		require.NoError(t, db.Delete(&user).Error) // 不会进行关联删除
+		require.NoError(t, db.First(&user.Addresses).Error)
+
+		db.Exec("TRUNCATE TABLE users")
+		db.Exec("TRUNCATE TABLE addresses")
+	}
+
+	// with Omit(clause.Associations)
+	{
+		user := User{
+			Name: "Alice",
+			Addresses: []Address{
+				{AddressLine: "123 Street"},
+				{AddressLine: "456 Avenue"},
+			},
+		}
+		require.NoError(t, db.Omit(clause.Associations).Create(&user).Error)
+		require.NoError(t, db.Where("name = ?", "Alice").First(&user).Error)
+		require.ErrorIs(t, db.Where("address_line = ?", "123 Street").First(&user.Addresses).Error, gorm.ErrRecordNotFound)
+
+		db.Exec("TRUNCATE TABLE users")
+		db.Exec("TRUNCATE TABLE addresses")
+	}
+
+	{
+		user := User{
+			Name: "Alice",
+			Addresses: []Address{
+				{AddressLine: "123 Street"},
+				{AddressLine: "456 Avenue"},
+			},
+		}
+		require.NoError(t, db.Save(&user).Error)
+		require.NoError(t, db.Where("name = ?", "Alice").First(&user).Error)
+		require.NoError(t, db.Where("address_line = ?", "123 Street").First(&user.Addresses).Error)
+
+		db.Exec("TRUNCATE TABLE users")
+		db.Exec("TRUNCATE TABLE addresses")
+	}
+
+	// with Omit(clause.Associations)
+	{
+		user := User{
+			Name: "Alice",
+			Addresses: []Address{
+				{AddressLine: "123 Street"},
+				{AddressLine: "456 Avenue"},
+			},
+		}
+		require.NoError(t, db.Omit(clause.Associations).Save(&user).Error)
+		require.NoError(t, db.Where("name = ?", "Alice").First(&user).Error)
+		require.ErrorIs(t, db.Where("address_line = ?", "123 Street").First(&user.Addresses).Error, gorm.ErrRecordNotFound)
+
+		db.Exec("TRUNCATE TABLE users")
+		db.Exec("TRUNCATE TABLE addresses")
+	}
 }
