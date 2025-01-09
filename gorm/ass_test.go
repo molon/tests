@@ -11,6 +11,8 @@ import (
 	"gorm.io/gorm/logger"
 )
 
+// 目标是调研 gorm 默认的对关联数据的写行为，并且调研如何移除这个默认行为
+
 var db *gorm.DB
 
 func TestMain(m *testing.M) {
@@ -158,10 +160,10 @@ func TestAssociation(t *testing.T) {
 		user.Addresses = []*Address{firstAddress}
 		require.NoError(t, db.Session(&gorm.Session{FullSaveAssociations: true}).Save(&user).Error) // 会进行关联更新
 		require.NoError(t, db.Where("address_line = ?", "789 Boulevard").First(&user.Addresses).Error)
-		require.NoError(t, db.Where("address_line = ?", "456 Avenue").First(&user.Addresses).Error) // 但是另外一个不会被删除，一些场景下就很沙雕
+		require.NoError(t, db.Where("address_line = ?", "456 Avenue").First(&user.Addresses).Error) // 但是另外一个不会被删除
 		addresses := []*Address{}
 		require.NoError(t, db.Where("user_id = ?", user.ID).Find(&addresses).Error)
-		require.Len(t, addresses, 2) // 但是另外一个不会被删除，一些场景下就很沙雕，几乎没法用这个破玩意
+		require.Len(t, addresses, 2) // 但是另外一个不会被删除
 
 		// 不会进行关联更新，还是 .Omit(clause.Associations) 的优先级会更高，这很好
 		firstAddress.AddressLine = "666 Boulevard"
@@ -383,7 +385,7 @@ func TestWithoutAssociationByRemoveCallbacks(t *testing.T) {
 		user.Addresses[0].AddressLine = "789 Boulevard"
 		require.NoError(t, db.Session(&gorm.Session{FullSaveAssociations: true}).Updates(&user).Error) // 会进行关联更新
 		require.NoError(t, db.Where("address_line = ?", "789 Boulevard").First(&user.Addresses).Error)
-		require.NoError(t, db.Where("address_line = ?", "456 Avenue").First(&user.Addresses).Error) // 另外一个也不会被删除，一些场景下就很沙雕
+		require.NoError(t, db.Where("address_line = ?", "456 Avenue").First(&user.Addresses).Error) // 另外一个也不会被删除
 
 		user.Addresses[0].AddressLine = "666 Boulevard"
 		require.NoError(t, db.Session(&gorm.Session{FullSaveAssociations: true}).Model(&user).UpdateColumn("name", "Bob").Error) // 会进行关联更新

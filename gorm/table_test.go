@@ -11,6 +11,8 @@ import (
 	"gorm.io/gorm/schema"
 )
 
+// 目标是调研如何在 GORM 中实现动态表前缀的功能
+
 type Foo struct {
 	ID   string
 	Name string
