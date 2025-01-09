@@ -425,21 +425,14 @@ type Model struct {
 	DeletedAt gorm.DeletedAt `gorm:"index"`
 }
 
-func (u *Model) BeforeCreate(tx *gorm.DB) error {
+func (u *Model) BeforeSave(tx *gorm.DB) error {
 	if withoutAssociationByHooks {
 		tx.Statement.Omit(clause.Associations)
 	}
 	return nil
 }
 
-func (u *Model) BeforeUpdate(tx *gorm.DB) (err error) {
-	if withoutAssociationByHooks {
-		tx.Statement.Omit(clause.Associations)
-	}
-	return nil
-}
-
-func (u *Model) BeforeDelete(tx *gorm.DB) (err error) {
+func (u *Model) BeforeDelete(tx *gorm.DB) error {
 	if withoutAssociationByHooks {
 		tx.Statement.Omit(clause.Associations)
 	}
