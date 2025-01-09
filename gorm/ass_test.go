@@ -397,7 +397,7 @@ func TestWithoutAssociationByRemoveCallbacks(t *testing.T) {
 		require.NoError(t, db.Exec("TRUNCATE TABLE addresses").Error)
 	}
 
-	// 注意这个移除是 gorm.DB 级别的，不是 gorm.Session 级别的
+	// 注意这个移除是 gorm.DB 级别的，不是 gorm.Session 级别的，所以此 test 是独立的 db 实例
 	createCallback := db.Callback().Create()
 	createCallback.Remove("gorm:save_before_associations")
 	createCallback.Remove("gorm:save_after_associations")
