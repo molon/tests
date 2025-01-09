@@ -76,36 +76,6 @@ func TestOr(t *testing.T) {
 	// TIPS: 但是后续发现如果 Model 里存在 DeletedAt 的话，行为会和上面的不一致，注意不要被这个坑到，之后再补充测试，
 }
 
-var withoutAssociation = false
-
-type Model struct {
-	ID        uint `gorm:"primarykey"`
-	CreatedAt time.Time
-	UpdatedAt time.Time
-	DeletedAt gorm.DeletedAt `gorm:"index"`
-}
-
-func (u *Model) BeforeCreate(tx *gorm.DB) error {
-	if withoutAssociation {
-		tx.Statement.Omit(clause.Associations)
-	}
-	return nil
-}
-
-func (u *Model) BeforeUpdate(tx *gorm.DB) (err error) {
-	if withoutAssociation {
-		tx.Statement.Omit(clause.Associations)
-	}
-	return nil
-}
-
-func (u *Model) BeforeDelete(tx *gorm.DB) (err error) {
-	if withoutAssociation {
-		tx.Statement.Omit(clause.Associations)
-	}
-	return nil
-}
-
 type User struct {
 	Model
 	Name      string
@@ -439,31 +409,65 @@ func TestWithoutAssociationByRemoveCallbacks(t *testing.T) {
 	updateCallback.Remove("gorm:save_before_associations")
 	updateCallback.Remove("gorm:save_after_associations")
 
+	// 没准这种方式更完整，是否会有隐患呢？
 	afterHandleWithoutAssociation(t, db, true)
 }
 
 // 测试根据 hooks 来进行移除关联数据的写行为
+var withoutAssociationByHooks = false
+
+type Model struct {
+	ID        uint `gorm:"primarykey"`
+	CreatedAt time.Time
+	UpdatedAt time.Time
+	DeletedAt gorm.DeletedAt `gorm:"index"`
+}
+
+func (u *Model) BeforeCreate(tx *gorm.DB) error {
+	if withoutAssociationByHooks {
+		tx.Statement.Omit(clause.Associations)
+	}
+	return nil
+}
+
+func (u *Model) BeforeUpdate(tx *gorm.DB) (err error) {
+	if withoutAssociationByHooks {
+		tx.Statement.Omit(clause.Associations)
+	}
+	return nil
+}
+
+func (u *Model) BeforeDelete(tx *gorm.DB) (err error) {
+	if withoutAssociationByHooks {
+		tx.Statement.Omit(clause.Associations)
+	}
+	return nil
+}
+
 func TestWithoutAssociationByHooks(t *testing.T) {
 	require.NoError(t, db.AutoMigrate(&User{}, &Address{}))
 
-	withoutAssociation = true
+	withoutAssociationByHooks = true
 	defer func() {
-		withoutAssociation = false
+		withoutAssociationByHooks = false
 	}()
 
+	// 这种方式会因为例如 UpdateColumn 之类的操作不会触发 Hooks 而导致处理得不够完整
+	// 使用者避免使用 UpdateColumn 之类的方法+FullSaveAssociations 就能避免这个问题
 	afterHandleWithoutAssociation(t, db, false)
 }
 
 func TestWithoutAssociationByScope(t *testing.T) {
 	require.NoError(t, db.AutoMigrate(&User{}, &Address{}))
 
+	// 依靠一个 scope+session 来固定 Omit 语句
 	db := db.Scopes(func(db *gorm.DB) *gorm.DB {
 		return db.Omit(clause.Associations)
 	}).Session(&gorm.Session{})
 
 	// 本来以为这样的话 Preload 就不行了呢，没想到也行。
-	// 而且以为对 Delete 来说 .Omit(clause.Associations) 在前， .Select(clause.Associations) 在后，会认后者呢，没想到也不会
-	// 但是因为感知上这个不是很明确，所以还是不建议这么写
+	// 而且本以为对 Delete 来说 .Omit(clause.Associations) 在前/.Select(clause.Associations) 在后 这种情况会认后者呢，没想到也不会
+	// 所以貌似和感知上有点不匹配，没准会算是 gorm 以后可能会修复的 bug ？
 	afterHandleWithoutAssociation(t, db, true)
 }
 
