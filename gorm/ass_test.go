@@ -109,7 +109,7 @@ func (u *Model) BeforeDelete(tx *gorm.DB) (err error) {
 type User struct {
 	Model
 	Name      string
-	Addresses []Address
+	Addresses []*Address
 }
 
 type Address struct {
@@ -125,7 +125,7 @@ func TestAssociation(t *testing.T) {
 	{
 		user := User{
 			Name: "Alice",
-			Addresses: []Address{
+			Addresses: []*Address{
 				{AddressLine: "123 Street"},
 				{AddressLine: "456 Avenue"},
 			},
@@ -154,7 +154,7 @@ func TestAssociation(t *testing.T) {
 	{
 		user := User{
 			Name: "Alice",
-			Addresses: []Address{
+			Addresses: []*Address{
 				{AddressLine: "123 Street"},
 				{AddressLine: "456 Avenue"},
 			},
@@ -170,7 +170,7 @@ func TestAssociation(t *testing.T) {
 	{
 		user := User{
 			Name: "Alice",
-			Addresses: []Address{
+			Addresses: []*Address{
 				{AddressLine: "123 Street"},
 				{AddressLine: "456 Avenue"},
 			},
@@ -185,16 +185,17 @@ func TestAssociation(t *testing.T) {
 		require.NoError(t, db.Where("address_line = ?", "123 Street").First(&user.Addresses).Error)
 		require.ErrorIs(t, db.Where("address_line = ?", "789 Boulevard").First(&user.Addresses).Error, gorm.ErrRecordNotFound)
 
-		user.Addresses = []Address{firstAddress}
+		user.Addresses = []*Address{firstAddress}
 		require.NoError(t, db.Session(&gorm.Session{FullSaveAssociations: true}).Save(&user).Error) // 会进行关联更新
 		require.NoError(t, db.Where("address_line = ?", "789 Boulevard").First(&user.Addresses).Error)
 		require.NoError(t, db.Where("address_line = ?", "456 Avenue").First(&user.Addresses).Error) // 但是另外一个不会被删除，一些场景下就很沙雕
-		addresses := []Address{}
+		addresses := []*Address{}
 		require.NoError(t, db.Where("user_id = ?", user.ID).Find(&addresses).Error)
 		require.Len(t, addresses, 2) // 但是另外一个不会被删除，一些场景下就很沙雕，几乎没法用这个破玩意
 
 		// 不会进行关联更新，还是 .Omit(clause.Associations) 的优先级会更高，这很好
 		firstAddress.AddressLine = "666 Boulevard"
+		user.Addresses = []*Address{firstAddress}
 		require.NoError(t, db.Session(&gorm.Session{FullSaveAssociations: true}).Omit(clause.Associations).Save(&user).Error)
 		require.ErrorIs(t, db.Where("address_line = ?", "666 Boulevard").First(&user.Addresses).Error, gorm.ErrRecordNotFound)
 
@@ -206,7 +207,7 @@ func TestAssociation(t *testing.T) {
 	{
 		user := User{
 			Name: "Alice",
-			Addresses: []Address{
+			Addresses: []*Address{
 				{AddressLine: "123 Street"},
 				{AddressLine: "456 Avenue"},
 			},
@@ -223,7 +224,7 @@ func TestAssociation(t *testing.T) {
 	{
 		user := User{
 			Name: "Alice",
-			Addresses: []Address{
+			Addresses: []*Address{
 				{AddressLine: "123 Street"},
 				{AddressLine: "456 Avenue"},
 			},
@@ -240,7 +241,7 @@ func TestAssociation(t *testing.T) {
 	{
 		user := User{
 			Name: "Alice",
-			Addresses: []Address{
+			Addresses: []*Address{
 				{AddressLine: "123 Street"},
 				{AddressLine: "456 Avenue"},
 			},
@@ -257,7 +258,7 @@ func TestAssociation(t *testing.T) {
 	{
 		user := User{
 			Name: "Alice",
-			Addresses: []Address{
+			Addresses: []*Address{
 				{AddressLine: "123 Street"},
 				{AddressLine: "456 Avenue"},
 			},
@@ -273,6 +274,112 @@ func TestAssociation(t *testing.T) {
 	}
 
 	// 综上所述，Create 和 Save 非必要最好添加 .Omit(clause.Associations) ，以免非预期的语句执行，下面会更便捷的法子
+}
+
+func afterHandleWithoutAssociation(t *testing.T, db *gorm.DB, checkSkippedHooksMethod bool) {
+	// 移除之后，所有的关联写操作
+	{
+		user := User{
+			Name: "Alice",
+			Addresses: []*Address{
+				{AddressLine: "123 Street"},
+				{AddressLine: "456 Avenue"},
+			},
+		}
+		require.NoError(t, db.Create(&user).Error) // 不会进行关联创建
+		require.NoError(t, db.Where("name = ?", "Alice").First(&user).Error)
+		require.ErrorIs(t, db.Where("address_line = ?", "123 Street").First(&user.Addresses).Error, gorm.ErrRecordNotFound)
+
+		user.Addresses = []*Address{
+			{AddressLine: "123 Street", UserID: user.ID},
+			{AddressLine: "456 Avenue", UserID: user.ID},
+		}
+		require.NoError(t, db.Create(&user.Addresses).Error) // 主动创建一下
+
+		// t.Logf("User: %+v", user)
+		user.Name = "Bob"
+		user.Addresses[0].AddressLine = "789 Boulevard"
+		require.NoError(t, db.Session(&gorm.Session{FullSaveAssociations: true}).Updates(&user).Error) // 不会进行关联更新
+		require.NoError(t, db.Where("name = ?", "Bob").First(&user).Error)
+		require.ErrorIs(t, db.Where("address_line = ?", "789 Boulevard").First(&user.Addresses).Error, gorm.ErrRecordNotFound)
+
+		require.NoError(t, db.Where("user_id = ?", user.ID).Find(&(user.Addresses)).Error) // 先查询出来
+		require.Len(t, user.Addresses, 2)
+
+		if checkSkippedHooksMethod {
+			user.Addresses[0].AddressLine = "666 Boulevard"
+			require.NoError(t, db.Session(&gorm.Session{FullSaveAssociations: true}).Model(&user).UpdateColumn("name", "BobX").Error) // 不会进行关联更新
+			require.NoError(t, db.Where("name = ?", "BobX").First(&user).Error)
+			require.ErrorIs(t, db.Where("address_line = ?", "666 Boulevard").First(&user.Addresses).Error, gorm.ErrRecordNotFound)
+		}
+
+		require.NoError(t, db.Select(clause.Associations).Delete(&user).Error) // 不会进行关联删除
+		require.NoError(t, db.First(&user.Addresses).Error)
+
+		require.NoError(t, db.Exec("TRUNCATE TABLE users").Error)
+		require.NoError(t, db.Exec("TRUNCATE TABLE addresses").Error)
+	}
+
+	// 如果也显式指定了 Omit
+	{
+		user := User{
+			Name: "Alice",
+			Addresses: []*Address{
+				{AddressLine: "123 Street"},
+				{AddressLine: "456 Avenue"},
+			},
+		}
+		require.NoError(t, db.Omit(clause.Associations).Create(&user).Error) // 不会进行关联创建
+		require.NoError(t, db.Where("name = ?", "Alice").First(&user).Error)
+		require.ErrorIs(t, db.Where("address_line = ?", "123 Street").First(&user.Addresses).Error, gorm.ErrRecordNotFound)
+
+		user.Addresses = []*Address{
+			{AddressLine: "123 Street", UserID: user.ID},
+			{AddressLine: "456 Avenue", UserID: user.ID},
+		}
+		require.NoError(t, db.Omit(clause.Associations).Create(&user.Addresses).Error) // 主动创建一下
+
+		// t.Logf("User: %+v", user)
+		user.Name = "Bob"
+		user.Addresses[0].AddressLine = "789 Boulevard"
+		require.NoError(t, db.Session(&gorm.Session{FullSaveAssociations: true}).Omit(clause.Associations).Updates(&user).Error) // 不会进行关联更新
+		require.NoError(t, db.Where("name = ?", "Bob").First(&user).Error)
+		require.ErrorIs(t, db.Where("address_line = ?", "789 Boulevard").First(&user.Addresses).Error, gorm.ErrRecordNotFound)
+
+		require.NoError(t, db.Where("user_id = ?", user.ID).Find(&(user.Addresses)).Error) // 先查询出来
+		require.Len(t, user.Addresses, 2)
+
+		// if checkSkippedHooks {
+		user.Addresses[0].AddressLine = "666 Boulevard"
+		require.NoError(t, db.Session(&gorm.Session{FullSaveAssociations: true}).Model(&user).Omit(clause.Associations).UpdateColumn("name", "BobX").Error) // 不会进行关联更新
+		require.NoError(t, db.Where("name = ?", "BobX").First(&user).Error)
+		require.ErrorIs(t, db.Where("address_line = ?", "666 Boulevard").First(&user.Addresses).Error, gorm.ErrRecordNotFound)
+		// }
+
+		require.NoError(t, db.Select(clause.Associations).Omit(clause.Associations).Delete(&user).Error) // 不会进行关联删除
+		require.NoError(t, db.First(&user.Addresses).Error)
+
+		require.NoError(t, db.Exec("TRUNCATE TABLE users").Error)
+		require.NoError(t, db.Exec("TRUNCATE TABLE addresses").Error)
+	}
+
+	// Preload 操作依然可用
+	{
+		user := &User{
+			Name: "Alice",
+		}
+		require.NoError(t, db.Create(user).Error)
+		require.NoError(t, db.Create(&[]*Address{
+			{AddressLine: "123 Street", UserID: user.ID},
+			{AddressLine: "456 Avenue", UserID: user.ID},
+		}).Error)
+
+		require.NoError(t, db.Preload("Addresses").First(&user).Error)
+		require.Len(t, user.Addresses, 2)
+
+		require.NoError(t, db.Exec("TRUNCATE TABLE users").Error)
+		require.NoError(t, db.Exec("TRUNCATE TABLE addresses").Error)
+	}
 }
 
 // 测试全局移除关联数据的写行为
@@ -293,7 +400,7 @@ func TestWithoutAssociationByRemoveCallbacks(t *testing.T) {
 	{
 		user := User{
 			Name: "Alice",
-			Addresses: []Address{
+			Addresses: []*Address{
 				{AddressLine: "123 Street"},
 				{AddressLine: "456 Avenue"},
 			},
@@ -308,6 +415,11 @@ func TestWithoutAssociationByRemoveCallbacks(t *testing.T) {
 		require.NoError(t, db.Where("address_line = ?", "789 Boulevard").First(&user.Addresses).Error)
 		require.NoError(t, db.Where("address_line = ?", "456 Avenue").First(&user.Addresses).Error) // 另外一个也不会被删除，一些场景下就很沙雕
 
+		user.Addresses[0].AddressLine = "666 Boulevard"
+		require.NoError(t, db.Session(&gorm.Session{FullSaveAssociations: true}).Model(&user).UpdateColumn("name", "Bob").Error) // 会进行关联更新
+		require.NoError(t, db.Where("name = ?", "Bob").First(&user).Error)
+		require.NoError(t, db.Where("address_line = ?", "666 Boulevard").First(&user.Addresses).Error)
+
 		require.NoError(t, db.Select(clause.Associations).Delete(&user).Error)      // 会进行关联删除
 		require.ErrorIs(t, db.First(&user.Addresses).Error, gorm.ErrRecordNotFound) // 倒是会全部删除
 
@@ -315,146 +427,44 @@ func TestWithoutAssociationByRemoveCallbacks(t *testing.T) {
 		require.NoError(t, db.Exec("TRUNCATE TABLE addresses").Error)
 	}
 
-	// 移除之后，所有的关联写操作
-	{
-		// 注意这个移除是 gorm.DB 级别的，不是 gorm.Session 级别的
-		createCallback := db.Callback().Create()
-		createCallback.Remove("gorm:save_before_associations")
-		createCallback.Remove("gorm:save_after_associations")
+	// 注意这个移除是 gorm.DB 级别的，不是 gorm.Session 级别的
+	createCallback := db.Callback().Create()
+	createCallback.Remove("gorm:save_before_associations")
+	createCallback.Remove("gorm:save_after_associations")
 
-		deleteCallback := db.Callback().Delete()
-		deleteCallback.Remove("gorm:delete_before_associations")
+	deleteCallback := db.Callback().Delete()
+	deleteCallback.Remove("gorm:delete_before_associations")
 
-		updateCallback := db.Callback().Update()
-		updateCallback.Remove("gorm:save_before_associations")
-		updateCallback.Remove("gorm:save_after_associations")
+	updateCallback := db.Callback().Update()
+	updateCallback.Remove("gorm:save_before_associations")
+	updateCallback.Remove("gorm:save_after_associations")
 
-		user := User{
-			Name: "Alice",
-			Addresses: []Address{
-				{AddressLine: "123 Street"},
-				{AddressLine: "456 Avenue"},
-			},
-		}
-		require.NoError(t, db.Create(&user).Error) // 不会进行关联创建
-		require.NoError(t, db.Where("name = ?", "Alice").First(&user).Error)
-		require.ErrorIs(t, db.Where("address_line = ?", "123 Street").First(&user.Addresses).Error, gorm.ErrRecordNotFound)
-
-		user.Addresses = []Address{
-			{AddressLine: "123 Street"},
-			{AddressLine: "456 Avenue"},
-		}
-		require.NoError(t, db.Create(&user.Addresses).Error) // 主动创建一下
-
-		// t.Logf("User: %+v", user)
-		user.Addresses[0].AddressLine = "789 Boulevard"
-		require.NoError(t, db.Session(&gorm.Session{FullSaveAssociations: true}).Updates(&user).Error) // 不会进行关联更新
-		require.ErrorIs(t, db.Where("address_line = ?", "789 Boulevard").First(&user.Addresses).Error, gorm.ErrRecordNotFound)
-
-		require.NoError(t, db.Select(clause.Associations).Delete(&user).Error) // 不会进行关联删除
-		require.NoError(t, db.First(&user.Addresses).Error)
-
-		require.NoError(t, db.Exec("TRUNCATE TABLE users").Error)
-		require.NoError(t, db.Exec("TRUNCATE TABLE addresses").Error)
-	}
+	afterHandleWithoutAssociation(t, db, true)
 }
 
 // 测试根据 hooks 来进行移除关联数据的写行为
 func TestWithoutAssociationByHooks(t *testing.T) {
 	require.NoError(t, db.AutoMigrate(&User{}, &Address{}))
 
-	// 未移除之前，所有的关联写操作
-	{
-		user := User{
-			Name: "Alice",
-			Addresses: []Address{
-				{AddressLine: "123 Street"},
-				{AddressLine: "456 Avenue"},
-			},
-		}
-		require.NoError(t, db.Create(&user).Error) // 会进行关联创建
-		require.NoError(t, db.Where("name = ?", "Alice").First(&user).Error)
-		require.NoError(t, db.Where("address_line = ?", "123 Street").First(&user.Addresses).Error)
-
-		// t.Logf("User: %+v", user)
-		user.Addresses[0].AddressLine = "789 Boulevard"
-		require.NoError(t, db.Session(&gorm.Session{FullSaveAssociations: true}).Updates(&user).Error) // 会进行关联更新
-		require.NoError(t, db.Where("address_line = ?", "789 Boulevard").First(&user.Addresses).Error)
-		require.NoError(t, db.Where("address_line = ?", "456 Avenue").First(&user.Addresses).Error) // 另外一个也不会被删除，一些场景下就很沙雕
-
-		require.NoError(t, db.Select(clause.Associations).Delete(&user).Error)      // 会进行关联删除
-		require.ErrorIs(t, db.First(&user.Addresses).Error, gorm.ErrRecordNotFound) // 倒是会全部删除
-
-		require.NoError(t, db.Exec("TRUNCATE TABLE users").Error)
-		require.NoError(t, db.Exec("TRUNCATE TABLE addresses").Error)
-	}
-
 	withoutAssociation = true
 	defer func() {
 		withoutAssociation = false
 	}()
 
-	// 移除之后，所有的关联写操作
-	{
-		user := User{
-			Name: "Alice",
-			Addresses: []Address{
-				{AddressLine: "123 Street"},
-				{AddressLine: "456 Avenue"},
-			},
-		}
-		require.NoError(t, db.Create(&user).Error) // 不会进行关联创建
-		require.NoError(t, db.Where("name = ?", "Alice").First(&user).Error)
-		require.ErrorIs(t, db.Where("address_line = ?", "123 Street").First(&user.Addresses).Error, gorm.ErrRecordNotFound)
+	afterHandleWithoutAssociation(t, db, false)
+}
 
-		user.Addresses = []Address{
-			{AddressLine: "123 Street"},
-			{AddressLine: "456 Avenue"},
-		}
-		require.NoError(t, db.Create(&user.Addresses).Error) // 主动创建一下
+func TestWithoutAssociationByScope(t *testing.T) {
+	require.NoError(t, db.AutoMigrate(&User{}, &Address{}))
 
-		// t.Logf("User: %+v", user)
-		user.Addresses[0].AddressLine = "789 Boulevard"
-		require.NoError(t, db.Session(&gorm.Session{FullSaveAssociations: true}).Updates(&user).Error) // 不会进行关联更新
-		require.ErrorIs(t, db.Where("address_line = ?", "789 Boulevard").First(&user.Addresses).Error, gorm.ErrRecordNotFound)
+	db := db.Scopes(func(db *gorm.DB) *gorm.DB {
+		return db.Omit(clause.Associations)
+	}).Session(&gorm.Session{})
 
-		require.NoError(t, db.Select(clause.Associations).Delete(&user).Error) // 不会进行关联删除
-		require.NoError(t, db.First(&user.Addresses).Error)
-
-		require.NoError(t, db.Exec("TRUNCATE TABLE users").Error)
-		require.NoError(t, db.Exec("TRUNCATE TABLE addresses").Error)
-	}
-
-	// 如果也显式指定了 Omit
-	{
-		user := User{
-			Name: "Alice",
-			Addresses: []Address{
-				{AddressLine: "123 Street"},
-				{AddressLine: "456 Avenue"},
-			},
-		}
-		require.NoError(t, db.Omit(clause.Associations).Create(&user).Error) // 不会进行关联创建
-		require.NoError(t, db.Where("name = ?", "Alice").First(&user).Error)
-		require.ErrorIs(t, db.Where("address_line = ?", "123 Street").First(&user.Addresses).Error, gorm.ErrRecordNotFound)
-
-		user.Addresses = []Address{
-			{AddressLine: "123 Street"},
-			{AddressLine: "456 Avenue"},
-		}
-		require.NoError(t, db.Omit(clause.Associations).Create(&user.Addresses).Error) // 主动创建一下
-
-		// t.Logf("User: %+v", user)
-		user.Addresses[0].AddressLine = "789 Boulevard"
-		require.NoError(t, db.Session(&gorm.Session{FullSaveAssociations: true}).Omit(clause.Associations).Updates(&user).Error) // 不会进行关联更新
-		require.ErrorIs(t, db.Where("address_line = ?", "789 Boulevard").First(&user.Addresses).Error, gorm.ErrRecordNotFound)
-
-		require.NoError(t, db.Select(clause.Associations).Omit(clause.Associations).Delete(&user).Error) // 不会进行关联删除
-		require.NoError(t, db.First(&user.Addresses).Error)
-
-		require.NoError(t, db.Exec("TRUNCATE TABLE users").Error)
-		require.NoError(t, db.Exec("TRUNCATE TABLE addresses").Error)
-	}
+	// 本来以为这样的话 Preload 就不行了呢，没想到也行。
+	// 而且以为对 Delete 来说 .Omit(clause.Associations) 在前， .Select(clause.Associations) 在后，会认后者呢，没想到也不会
+	// 但是因为感知上这个不是很明确，所以还是不建议这么写
+	afterHandleWithoutAssociation(t, db, true)
 }
 
 type UserWithHook struct {
