@@ -188,4 +188,33 @@ func TestAssociation(t *testing.T) {
 	}
 
 	// 综上所述，Create 和 Save 非必要最好添加 .Omit(clause.Associations) ，以免非预期的语句执行
+
+	// 测试全局移除关联数据的写行为
+	{
+		// 注意这个移除是 gorm.DB 级别的，不是 gorm.Session 级别的
+		createCallback := db.Callback().Create()
+		createCallback.Remove("gorm:save_before_associations")
+		createCallback.Remove("gorm:save_after_associations")
+
+		deleteCallback := db.Callback().Delete()
+		deleteCallback.Remove("gorm:delete_before_associations")
+
+		updateCallback := db.Callback().Update()
+		updateCallback.Remove("gorm:save_before_associations")
+		updateCallback.Remove("gorm:save_after_associations")
+
+		user := User{
+			Name: "Alice",
+			Addresses: []Address{
+				{AddressLine: "123 Street"},
+				{AddressLine: "456 Avenue"},
+			},
+		}
+		require.NoError(t, db.Create(&user).Error)
+		require.NoError(t, db.Where("name = ?", "Alice").First(&user).Error)
+		require.ErrorIs(t, db.Where("address_line = ?", "123 Street").First(&user.Addresses).Error, gorm.ErrRecordNotFound)
+
+		db.Exec("TRUNCATE TABLE users")
+		db.Exec("TRUNCATE TABLE addresses")
+	}
 }
