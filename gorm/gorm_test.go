@@ -91,6 +91,18 @@ func TestUpdate(t *testing.T) {
 	require.NoError(t, db.First(&firstUser).Error)
 	require.Equal(t, 19, firstUser.Age) // 确认 db 里的值
 
+	oldUpdatedAt = firstUser.UpdatedAt
+	result = db.Model(firstUser).Where("name = ?", "NotExists").Update("name", "Tom")
+	require.NoError(t, result.Error)
+	require.Equal(t, int64(0), result.RowsAffected)        // 未找到记录，所以不会更新
+	require.NotEqual(t, oldUpdatedAt, firstUser.UpdatedAt) // 即使没更新成功，也会更新提交的 model 的 UpdatedAt
+
+	oldUpdatedAt = firstUser.UpdatedAt
+	result = db.Model(firstUser).Where("column_not_exists = ?", "NotExists").Update("name", "Tom")
+	require.Error(t, result.Error)                         // 未找到列，会报错
+	require.NotEqual(t, oldUpdatedAt, firstUser.UpdatedAt) // 即使报错，也会更新提交的 model 的 UpdatedAt
+	// 根据上面的 UpdatedAt 的相关，可以看出，其实调用完的 UpdatedAt 不算很可靠
+
 	firstUserID := firstUser.ID
 	{
 		firstUser := &User{}
