@@ -4,7 +4,39 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 )
+
+func TestRowsAffected(t *testing.T) {
+	require.NoError(t, db.AutoMigrate(&User{}))
+
+	users := []*User{
+		{Name: "Alice"},
+		{Name: "Bob"},
+	}
+	require.NoError(t, db.Create(users).Error)
+	firstUserID := users[0].ID
+
+	firstUser := &User{}
+	result := db.Where("id = ?", firstUserID).First(&firstUser)
+	require.NoError(t, result.Error)
+	require.Equal(t, int64(1), result.RowsAffected) // 查到一条数据，此处会返回 1
+
+	users = []*User{}
+	result = db.Find(&users)
+	require.NoError(t, result.Error)
+	require.Equal(t, int64(2), result.RowsAffected) // 查到两条数据，此处会返回 2
+
+	users = []*User{}
+	result = db.First(&users) // First 到一个数组里，最终 sql 语句还是 LIMIT 1
+	require.NoError(t, result.Error)
+	require.Equal(t, int64(1), result.RowsAffected) // 所以此处还是返回 1
+
+	users = []*User{} // First 到一个数组里，该返回 ErrRecordNotFound 还是会返回 ErrRecordNotFound
+	require.ErrorIs(t, db.First(&users, "name = ?", "not found").Error, gorm.ErrRecordNotFound)
+
+	require.NoError(t, db.Exec("TRUNCATE TABLE users").Error)
+}
 
 func TestUpdate(t *testing.T) {
 	require.NoError(t, db.AutoMigrate(&User{}))
@@ -49,6 +81,21 @@ func TestUpdate(t *testing.T) {
 	require.Equal(t, int64(1), result.RowsAffected)
 	require.Equal(t, "Mike", firstUser.Name) // 会更新 struct 中的对应字段
 	require.Equal(t, 0, firstUser.Age)       // 不会更新 Update 时没有指定的字段为数据库记录的值
+
+	firstUserID := firstUser.ID
+	{
+		firstUser := &User{}
+		result := db.Model(firstUser).Where("id = ?", firstUserID).Update("name", "MikeX")
+		require.NoError(t, result.Error)
+		require.Equal(t, int64(1), result.RowsAffected) // 更新了一条记录
+		require.Zero(t, firstUser.ID)                   // 即使只更新了一条记录，此时也不会设置主键
+		t.Logf("firstUser: %v", firstUser)
+		result = result.Order("id DESC").First(&firstUser) // 从下面可以看出，此时就不会是依赖于 firstUser 里的空 ID 来获取了，最终 sql 里的 id = 1 这个条件是从前一个行为中获取的
+		require.NoError(t, result.Error)
+		require.Equal(t, int64(1), result.RowsAffected) // 还是会返回 1
+		require.NotZero(t, firstUser.ID)                // 会查询到所有信息
+		t.Logf("firstUser: %v", firstUser)
+	}
 
 	require.NoError(t, db.Exec("TRUNCATE TABLE users").Error)
 }
