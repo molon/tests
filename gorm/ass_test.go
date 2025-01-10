@@ -430,9 +430,13 @@ func TestOmitAssociationsByBeforeCallbacks(t *testing.T) {
 	omitAssociations := func(db *gorm.DB) {
 		db.Statement.Omit(clause.Associations)
 	}
-	db.Callback().Create().Before("gorm:save_before_associations").Register("omit_associations", omitAssociations)
-	db.Callback().Delete().Before("gorm:delete_before_associations").Register("omit_associations", omitAssociations)
-	db.Callback().Update().Before("gorm:save_before_associations").Register("omit_associations", omitAssociations)
+	// db.Callback().Create().Before("gorm:save_before_associations").Register("omit_associations", omitAssociations)
+	// db.Callback().Delete().Before("gorm:delete_before_associations").Register("omit_associations", omitAssociations)
+	// db.Callback().Update().Before("gorm:save_before_associations").Register("omit_associations", omitAssociations)
+
+	db.Callback().Create().Before("gorm:before_create").Register("omit_associations", omitAssociations)
+	db.Callback().Delete().Before("gorm:before_delete").Register("omit_associations", omitAssociations)
+	db.Callback().Update().Before("gorm:before_update").Register("omit_associations", omitAssociations)
 
 	require.NoError(t, db.AutoMigrate(&User{}, &Address{}))
 
