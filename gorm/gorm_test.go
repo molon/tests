@@ -82,6 +82,15 @@ func TestUpdate(t *testing.T) {
 	require.Equal(t, "Mike", firstUser.Name) // 会更新 struct 中的对应字段
 	require.Equal(t, 0, firstUser.Age)       // 不会更新 Update 时没有指定的字段为数据库记录的值
 
+	oldUpdatedAt = firstUser.UpdatedAt
+	result = db.Model(firstUser).Update("age", gorm.Expr("age + ?", 1))
+	require.NoError(t, result.Error)
+	require.Equal(t, int64(1), result.RowsAffected)
+	require.NotEqual(t, 19, firstUser.Age)                 // 不会更新 struct 中的对应字段，因为给到的是 gorm.Expr
+	require.NotEqual(t, oldUpdatedAt, firstUser.UpdatedAt) // 会更新 UpdatedAt
+	require.NoError(t, db.First(&firstUser).Error)
+	require.Equal(t, 19, firstUser.Age) // 确认 db 里的值
+
 	firstUserID := firstUser.ID
 	{
 		firstUser := &User{}
