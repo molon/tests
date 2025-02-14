@@ -57,6 +57,7 @@ func TestUpdate(t *testing.T) {
 	result = db.Model(users[0]).Where("name = ? OR name = ?", "Alice 2", "Bob").Update("name", "David")
 	require.NoError(t, result.Error)
 	require.Equal(t, int64(1), result.RowsAffected) // 由于 db.Model 给到的 struct 是有主键的，所以只会更新第一条记录
+	require.Equal(t, "David", users[0].Name)        // 会更新 struct 中的对应字段
 	require.NotEqual(t, oldUpdatedAt, users[0].UpdatedAt)
 
 	userModel := &User{}
