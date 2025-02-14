@@ -61,8 +61,7 @@ func TestGRPCServerPanic(t *testing.T) {
 		dialer := func(context.Context, string) (net.Conn, error) {
 			return listener.Dial()
 		}
-		conn, err := grpc.DialContext(
-			context.Background(),
+		conn, err := grpc.NewClient(
 			"bufnet",
 			grpc.WithContextDialer(dialer),
 			grpc.WithTransportCredentials(insecure.NewCredentials()),
@@ -137,8 +136,7 @@ func runServerWithoutRecovery(t *testing.T) {
 	dialer := func(context.Context, string) (net.Conn, error) {
 		return listener.Dial()
 	}
-	conn, err := grpc.DialContext(
-		context.Background(),
+	conn, err := grpc.NewClient(
 		"bufnet",
 		grpc.WithContextDialer(dialer),
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
