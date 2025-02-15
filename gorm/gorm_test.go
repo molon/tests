@@ -7,6 +7,84 @@ import (
 	"gorm.io/gorm"
 )
 
+type KV struct {
+	Key   string `json:"key" gorm:"primaryKey;not null;"`
+	Value string `json:"value" gorm:"not null;"`
+}
+
+type KVWithDeletedAt struct {
+	Key       string         `json:"key" gorm:"primaryKey;not null;"`
+	Value     string         `json:"value" gorm:"not null;"`
+	DeletedAt gorm.DeletedAt `gorm:"index"`
+}
+
+func TestOr(t *testing.T) {
+	require.NoError(t, db.AutoMigrate(&KV{}, &KVWithDeletedAt{}))
+
+	var err error
+	err = db.Create(&KV{Key: "k1", Value: "v1"}).Error
+	require.Nil(t, err)
+	err = db.Create(&KV{Key: "k2", Value: "v2"}).Error
+	require.Nil(t, err)
+
+	{
+		kvs := []*KV{}
+		// SELECT * FROM "kvs" WHERE key = 'k1' OR key = 'k2' ORDER BY key DESC
+		err = db.Where("key = ?", "k1").Or("key = ?", "k2").Order("key DESC").Find(&kvs).Error
+		require.Nil(t, err)
+		require.Len(t, kvs, 2)
+	}
+	{
+		kvs := []*KV{}
+		// SELECT * FROM "kvs" WHERE key = 'k1' OR key = 'k2' ORDER BY key DESC
+		err = db.Or("key = ?", "k2").Where("key = ?", "k1").Order("key DESC").Find(&kvs).Error
+		require.Nil(t, err)
+		require.Len(t, kvs, 2)
+	}
+	// 所以会先从 Where 开始，然后拼接前面的 Or ，不推荐这么写，很难读和理解。
+
+	{
+		kvs := []*KV{}
+		// SELECT * FROM "kvs" WHERE key = 'k1' OR key = 'k2' AND key IS NOT NULL
+		// 此时其实相当于 SELECT * FROM "kvs" WHERE (key = 'k1') OR (key = 'k2' AND key IS NOT NULL)
+		err = db.Or("key = ?", "k2").Where("key = ?", "k1").Where("key IS NOT NULL").Find(&kvs).Error
+		require.Nil(t, err)
+		require.Len(t, kvs, 2)
+	}
+
+	{
+		kvs := []*KV{}
+		// SELECT * FROM "kvs" WHERE key IS NOT NULL OR key = 'k2' AND key = 'k1'
+		// 此时其实相当于 SELECT * FROM "kvs" WHERE (key IS NOT NULL) OR (key = 'k2' AND key = 'k1')
+		err = db.Where("key IS NOT NULL").Or("key = ?", "k2").Where("key = ?", "k1").Find(&kvs).Error
+		require.Nil(t, err)
+		require.Len(t, kvs, 2)
+	}
+
+	// TIPS: 但是后续发现如果 Model 里存在 DeletedAt 的话，行为会和上面的不一致，注意不要被这个坑到，原因如下：
+
+	err = db.Create(&KVWithDeletedAt{Key: "k1", Value: "v1"}).Error
+	require.Nil(t, err)
+	err = db.Create(&KVWithDeletedAt{Key: "k2", Value: "v2"}).Error
+	require.Nil(t, err)
+
+	{
+		kvs := []*KVWithDeletedAt{}
+		// SELECT * FROM "kv_with_deleted_ats" WHERE (key = 'k1' OR key = 'k2') AND "kv_with_deleted_ats"."deleted_at" IS NULL ORDER BY key DESC
+		err = db.Where("key = ?", "k1").Or("key = ?", "k2").Order("key DESC").Find(&kvs).Error
+		require.Nil(t, err)
+		require.Len(t, kvs, 2)
+	}
+	{
+		kvs := []*KVWithDeletedAt{}
+		// SELECT * FROM "kv_with_deleted_ats" WHERE (key = 'k2' AND key = 'k1') AND "kv_with_deleted_ats"."deleted_at" IS NULL ORDER BY key DESC
+		// !!! 注意这里的 Or 不存在了，不推荐这么写
+		err = db.Or("key = ?", "k2").Where("key = ?", "k1").Order("key DESC").Find(&kvs).Error
+		require.Nil(t, err)
+		require.Len(t, kvs, 2)
+	}
+}
+
 func TestRowsAffected(t *testing.T) {
 	require.NoError(t, db.AutoMigrate(&User{}))
 
