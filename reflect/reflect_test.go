@@ -5,6 +5,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/samber/lo"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -108,6 +109,93 @@ func TestNew(t *testing.T) {
 	}
 }
 
+func TestMakeSlice(t *testing.T) {
+	{
+		// 使用 reflect.MakeSlice 创建一个切片
+		sliceType := reflect.SliceOf(reflect.TypeOf(int(0)))
+		slice := reflect.MakeSlice(sliceType, 3, 3) // 创建一个长度为 3 的切片
+
+		// 获取 reflect.MakeSlice 创建的切片的真实切片
+		normalSlice := slice.Interface().([]int)
+
+		// 现在可以修改切片的元素
+		normalSlice[0] = 100
+		normalSlice[1] = 200
+		normalSlice[2] = 300
+
+		// 输出修改后的切片
+		assert.Equal(t, []int{100, 200, 300}, normalSlice)
+		assert.Equal(t, []int{100, 200, 300}, slice.Interface())
+
+		ptr := &normalSlice
+		(*ptr)[1] = 400
+		assert.Equal(t, []int{100, 400, 300}, normalSlice)
+		assert.Equal(t, []int{100, 400, 300}, slice.Interface())
+	}
+	{
+		sliceType := reflect.TypeOf([]int{})
+		slice := reflect.MakeSlice(sliceType, 0, 0)
+		assert.Panics(t, func() {
+			_ = slice.Addr().Interface() // MakeSlice 出来的玩意不可寻址
+		})
+	}
+	{
+		sliceType := reflect.TypeOf([]int{})
+		sliceMaked := reflect.MakeSlice(sliceType, 0, 0)
+		slice := reflect.New(sliceType).Elem()
+		// t.Logf("sliceMaked: %#v", sliceMaked.Interface())
+		t.Logf("slice: %#v", slice.Interface())
+		assert.True(t, slice.IsNil()) // 直接 New 出来的 slice 是 nil
+		slice.Set(sliceMaked)
+		assert.False(t, slice.IsNil()) // Set 一个 MakeSlice 才能变得不是 nil
+		t.Logf("slicePtr: %#v", slice.Interface())
+	}
+	{
+		a := reflect.MakeSlice(reflect.TypeOf([]int{}), 0, 0).Interface() // 这里 a 是 []int 类型
+		t.Logf("a: %T", a)
+		err := json.Unmarshal([]byte(`[1,2,3]`), &a)
+		assert.NoError(t, err)
+		t.Logf("a: %T", a)
+		// 注意这里类型变了，是因为如果是通过 any hold 的话，需要确保 hold 的不能是 not-ptr / nil-ptr ，否则 json.Unmarshal 会导致丢失具体类型
+		assert.Equal(t, []any{float64(1), float64(2), float64(3)}, a)
+	}
+	{
+		a := reflect.New(reflect.TypeOf([]int{})).Elem().Interface() // 这里 a 是 []int 类型
+		t.Logf("a: %T", a)
+		err := json.Unmarshal([]byte(`[1,2,3]`), &a)
+		assert.NoError(t, err)
+		t.Logf("a: %T", a)
+		// 注意这里类型变了，是因为如果是通过 any hold 的话，需要确保 hold 的不能是 not-ptr / nil-ptr ，否则 json.Unmarshal 会导致丢失具体类型
+		assert.Equal(t, []any{float64(1), float64(2), float64(3)}, a)
+	}
+	{
+		// 下面的例子虽然 a 也是 []int 类型，但是并没有通过 any hold ，所以不会丢失具体类型
+		a := reflect.New(reflect.TypeOf([]int{})).Elem()
+		err := json.Unmarshal([]byte(`[1,2,3]`), a.Addr().Interface())
+		assert.NoError(t, err)
+		assert.Equal(t, []int{1, 2, 3}, a.Interface())
+	}
+	{
+		// 这个例子和上面的类似，换了种写法而已
+		slicePtr := reflect.New(reflect.TypeOf([]int{}))
+		err := json.Unmarshal([]byte(`[1,2,3]`), slicePtr.Interface())
+		assert.NoError(t, err)
+		assert.Equal(t, []int{1, 2, 3}, reflect.Indirect(slicePtr).Interface())
+	}
+	{
+		// 这里例子虽然 any hold 了，但是直接 hold 的是 *[]int 类型，所以不会丢失具体类型
+		slicePtrValue := reflect.New(reflect.TypeOf([]int{}))
+		slicePtr := slicePtrValue.Interface()
+		err := json.Unmarshal([]byte(`[1,2,3]`), slicePtr)
+		assert.NoError(t, err)
+		assert.Equal(t, []int{1, 2, 3}, slicePtrValue.Elem().Interface())
+
+		err = json.Unmarshal([]byte(`[2,3,4]`), &slicePtr) // 多次取地址也 OK
+		assert.NoError(t, err)
+		assert.Equal(t, []int{2, 3, 4}, slicePtrValue.Elem().Interface())
+	}
+}
+
 func TestNil(t *testing.T) {
 	{
 		var a *int
@@ -123,6 +211,22 @@ func TestNil(t *testing.T) {
 		// 传入的是它，自然而然不是 nil
 		var a *int
 		assert.False(t, reflect.ValueOf(&a).IsNil())
+	}
+	{
+		var a map[string]int
+		assert.True(t, reflect.ValueOf(a).IsNil())
+
+		b := reflect.New(reflect.TypeOf(map[string]int{})).Elem().Interface()
+		assert.True(t, reflect.ValueOf(b).IsNil())
+
+		c := reflect.New(reflect.TypeOf(int(0))).Elem().Interface()
+		assert.Panics(t, func() {
+			_ = reflect.ValueOf(c).IsNil()
+		})
+
+		d := reflect.New(reflect.TypeOf(lo.ToPtr(0))).Elem().Interface()
+		assert.True(t, reflect.ValueOf(d).IsNil())
+		// 综上所述，New 一个非标量类型，得到的值会是 nil
 	}
 }
 
@@ -223,6 +327,20 @@ func TestUnmarshalToNew(t *testing.T) {
 		// 这里 newQ 的类型是 Person ，而不是 map[string]any ，这就是 UnmarshalToNew 的优点
 		assert.Equal(t, Person{Name: "Alice", Age: 30}, newQ)
 		assert.NotEqual(t, q, newQ)
+
+		var qs any = []Person{}
+		newQs, err := UnmarshalToNew([]byte(`[{"name":"Alice","age":30}]`), qs)
+		assert.NoError(t, err)
+		assert.Equal(t, []Person{{Name: "Alice", Age: 30}}, newQs)
+		assert.NotEqual(t, qs, newQs)
+
+		{
+			var qs any = reflect.MakeSlice(reflect.TypeOf([]Person{}), 0, 0).Interface()
+			newQs, err := UnmarshalToNew([]byte(`[{"name":"Alice","age":30}]`), qs)
+			assert.NoError(t, err)
+			assert.Equal(t, []Person{{Name: "Alice", Age: 30}}, newQs)
+			assert.NotEqual(t, qs, newQs)
+		}
 	}
 
 	{

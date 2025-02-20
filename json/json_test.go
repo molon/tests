@@ -114,6 +114,22 @@ func TestUnmarshal(t *testing.T) {
 		assert.ErrorContains(t, json.Unmarshal([]byte(`{"a":1}`), v), `json: Unmarshal(nil`)
 	}
 
+	{
+		v = []int{} // 虽然指定了具体类型，但是它还是属于 any hold 的 not-ptr 类型，所以会丢失具体类型
+		assert.NoError(t, json.Unmarshal([]byte(`[1,2,3]`), &v))
+		assert.Equal(t, []any{float64(1), float64(2), float64(3)}, v)
+
+		v = (*[]int)(nil) // 虽然指定了具体类型，但是它还是属于 any hold 的 nil-ptr 类型，所以会丢失具体类型
+		assert.NoError(t, json.Unmarshal([]byte(`[1,2,3]`), &v))
+		assert.Equal(t, []any{float64(1), float64(2), float64(3)}, v)
+	}
+
+	{
+		v = lo.ToPtr([]int{}) // 这就 hold 的是一个 not-nil-ptr 类型，所以不会丢失具体类型
+		assert.NoError(t, json.Unmarshal([]byte(`[1,2,3]`), &v))
+		assert.Equal(t, lo.ToPtr([]int{1, 2, 3}), v)
+	}
+
 	// IMPORTANT: 综上所述
 	// 1. 传入参数时候取地址是最保险的
 	// 2. 如果是通过 any hold 的话，需要确保 hold 的不能是 not-ptr / nil-ptr ，否则会丢失具体类型

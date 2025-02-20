@@ -13,15 +13,16 @@ import "reflect"
 func Make[T any]() T {
 	var zero T
 	t := reflect.TypeOf(zero)
-	v := makeValue(t)
+	v := MakeValue(t)
 	return v.Interface().(T)
 }
 
-// makeValue recursively creates a new instance based on the given reflect.Type.
+// MakeValue recursively creates a new instance based on the given reflect.Type.
+// The returned Value is always addressable (can be used with Set method).
 // For map, slice, and channel types, it returns initialized empty instances.
 // For pointer types, it recursively creates the element instance and returns a pointer to it.
 // For other types, it returns their zero values.
-func makeValue(t reflect.Type) reflect.Value {
+func MakeValue(t reflect.Type) reflect.Value {
 	if t == nil {
 		panic("Make: cannot determine type from nil interface")
 	}
@@ -29,21 +30,21 @@ func makeValue(t reflect.Type) reflect.Value {
 		panic("Make: function type is not supported")
 	}
 
-	switch t.Kind() {
-	case reflect.Map:
-		return reflect.MakeMap(t)
-	case reflect.Slice:
-		return reflect.MakeSlice(t, 0, 0)
-	case reflect.Chan:
-		return reflect.MakeChan(t, 0)
-	}
-
 	if t.Kind() != reflect.Ptr {
-		return reflect.New(t).Elem()
+		val := reflect.New(t).Elem()
+		switch t.Kind() {
+		case reflect.Map:
+			val.Set(reflect.MakeMap(t))
+		case reflect.Slice:
+			val.Set(reflect.MakeSlice(t, 0, 0))
+		case reflect.Chan:
+			val.Set(reflect.MakeChan(t, 0))
+		}
+		return val
 	}
 
 	elemType := t.Elem()
-	elemValue := makeValue(elemType)
+	elemValue := MakeValue(elemType)
 	ptrValue := reflect.New(elemType)
 	ptrValue.Elem().Set(elemValue)
 	return ptrValue
