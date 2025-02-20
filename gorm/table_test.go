@@ -126,7 +126,6 @@ func ParseSchemaWithDB(db *gorm.DB, v any) (*schema.Schema, error) {
 const dbKeyTablePrefix = "__table_prefix__"
 
 // TablePrefix dynamic table prefix
-// Only scenarios where a Model is provided are supported
 func TablePrefix(tablePrefix string) func(db *gorm.DB) *gorm.DB {
 	return func(db *gorm.DB) *gorm.DB {
 		if v, ok := db.Get(dbKeyTablePrefix); ok {
@@ -141,15 +140,15 @@ func TablePrefix(tablePrefix string) func(db *gorm.DB) *gorm.DB {
 		}
 
 		stmt := db.Statement
-		model := cmp.Or(stmt.Model, stmt.Dest)
-		if model == nil {
-			return db
-		}
 
 		var table string
 		if stmt.Table != "" {
 			table = stmt.Table
 		} else {
+			model := cmp.Or(stmt.Model, stmt.Dest)
+			if model == nil {
+				return db
+			}
 			s, err := ParseSchemaWithDB(db, model)
 			if err != nil {
 				db.AddError(err)

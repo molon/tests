@@ -35,7 +35,7 @@ func TestGRPCServerPanic(t *testing.T) {
 		t.Log("Starting test with recovery...")
 		listener := bufconn.Listen(1024 * 1024)
 		server := grpc.NewServer(
-			grpc.UnaryInterceptor(func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (resp interface{}, err error) {
+			grpc.UnaryInterceptor(func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (resp any, err error) {
 				defer func() {
 					if r := recover(); r != nil {
 						err = fmt.Errorf("panic occurred: %v", r)

@@ -13,7 +13,7 @@ func TestUnmarshal(t *testing.T) {
 	{
 		var v any
 		assert.NoError(t, json.Unmarshal([]byte(`{"a":1}`), &v))
-		assert.Equal(t, map[string]interface{}{"a": float64(1)}, v) // 数据类型是 float64
+		assert.Equal(t, map[string]any{"a": float64(1)}, v) // 数据类型是 float64
 	}
 
 	type Foo struct {
@@ -67,14 +67,14 @@ func TestUnmarshal(t *testing.T) {
 	{
 		v = nil
 		assert.NoError(t, json.Unmarshal([]byte(`{"a":1}`), &v))
-		assert.Equal(t, map[string]interface{}{"a": float64(1)}, v)
+		assert.Equal(t, map[string]any{"a": float64(1)}, v)
 	}
 	{
 		v = Foo{B: 8}
 		assert.NoError(t, json.Unmarshal([]byte(`{"a":1}`), &v))
 		// IMPORTANT: 注意此时 v 已经不是 Foo 类型了，而是 map 类型，B 字段已经丢失
 		// 如同忽略了 v = Foo{B: 8} 这一行，好像已经不是传入的那个它了
-		assert.Equal(t, map[string]interface{}{"a": float64(1)}, v)
+		assert.Equal(t, map[string]any{"a": float64(1)}, v)
 	}
 
 	{
@@ -102,7 +102,7 @@ func TestUnmarshal(t *testing.T) {
 		// 如同忽略了 v = (*Foo)(nil) 这一行，好像已经不是传入的那个它了
 		v = (*Foo)(nil)
 		assert.NoError(t, json.Unmarshal([]byte(`{"a":1}`), &v))
-		assert.Equal(t, map[string]interface{}{"a": float64(1)}, v)
+		assert.Equal(t, map[string]any{"a": float64(1)}, v)
 	}
 
 	{

@@ -95,6 +95,17 @@ func TestNew(t *testing.T) {
 		p := reflect.New(reflect.TypeOf(a)).Elem()
 		assert.Equal(t, 0, p.Interface())
 	}
+
+	{
+		type Foo struct {
+			A int
+			B string
+		}
+		var a *Foo
+		p := reflect.New(reflect.TypeOf(a)).Elem()
+		b := p.Interface().(*Foo)
+		assert.Nil(t, b) // 这里 b 是 nil ，因为 New 创建的是一个空指针
+	}
 }
 
 func TestNil(t *testing.T) {
@@ -156,7 +167,7 @@ func UnmarshalToNew(data []byte, v any) (any, error) {
 	// Get the type of v. If v is a nil value with no type (e.g., nil interface), vType will be nil.
 	vType := reflect.TypeOf(v)
 	if vType == nil {
-		// If v is a nil value with no type, unmarshal into a map[string]interface{}.
+		// If v is a nil value with no type, unmarshal into a map[string]any.
 		var cp any
 		err := json.Unmarshal(data, &cp)
 		if err != nil {
@@ -186,10 +197,32 @@ func TestUnmarshalToNew(t *testing.T) {
 		// 传入一个值，返回一个新的值
 		data := []byte(`{"name":"Alice","age":30}`)
 		var p Person
+		err := json.Unmarshal(data, &p)
+		assert.NoError(t, err)
+		assert.Equal(t, Person{Name: "Alice", Age: 30}, p)
+
+		var q any = Person{}
+		err = json.Unmarshal(data, &q)
+		assert.NoError(t, err)
+		// 这里 q 的类型是 map[string]any ，而不是 Person ，这就是直接使用 json.Unmarshal 的局限性
+		assert.Equal(t, map[string]any{"age": float64(30), "name": "Alice"}, q)
+	}
+
+	{
+		// 传入一个值，返回一个新的值
+		data := []byte(`{"name":"Alice","age":30}`)
+		var p Person
 		newP, err := UnmarshalToNew(data, p)
 		assert.NoError(t, err)
 		assert.Equal(t, Person{Name: "Alice", Age: 30}, newP)
 		assert.NotEqual(t, p, newP)
+
+		var q any = Person{}
+		newQ, err := UnmarshalToNew(data, q)
+		assert.NoError(t, err)
+		// 这里 newQ 的类型是 Person ，而不是 map[string]any ，这就是 UnmarshalToNew 的优点
+		assert.Equal(t, Person{Name: "Alice", Age: 30}, newQ)
+		assert.NotEqual(t, q, newQ)
 	}
 
 	{
@@ -208,7 +241,7 @@ func TestUnmarshalToNew(t *testing.T) {
 		var p any
 		newP, err := UnmarshalToNew(data, p)
 		assert.NoError(t, err)
-		assert.Equal(t, map[string]interface{}{"age": float64(30), "name": "Alice"}, newP)
+		assert.Equal(t, map[string]any{"age": float64(30), "name": "Alice"}, newP)
 		assert.NotEqual(t, p, newP)
 	}
 }
