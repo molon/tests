@@ -41,6 +41,7 @@ func TestAddressable(t *testing.T) {
 		assert.NotPanics(t, func() {
 			reflect.ValueOf(&iface).Elem().Set(reflect.ValueOf(2))
 		})
+		assert.Equal(t, 2, iface)
 	}
 
 	{
