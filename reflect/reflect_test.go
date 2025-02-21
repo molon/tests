@@ -89,6 +89,8 @@ func TestNew(t *testing.T) {
 		var a int
 		p := reflect.New(reflect.TypeOf(&a))
 		assert.Nil(t, p.Elem().Interface())
+		assert.True(t, p.Elem().IsNil())             // 指向一个空指针的指针，IsNil 为 true
+		assert.False(t, p.Elem().Interface() == nil) // 指向一个空指针的指针和 nil 直接判断，并非 nil
 	}
 
 	{

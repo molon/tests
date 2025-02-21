@@ -103,6 +103,10 @@ func TestUnmarshal(t *testing.T) {
 		v = (*Foo)(nil)
 		assert.NoError(t, json.Unmarshal([]byte(`{"a":1}`), &v))
 		assert.Equal(t, map[string]any{"a": float64(1)}, v)
+
+		a := (*Foo)(nil)
+		assert.NoError(t, json.Unmarshal([]byte(`{"a":1}`), &a))
+		assert.Equal(t, &Foo{A: 1}, a)
 	}
 
 	{
