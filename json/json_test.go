@@ -133,6 +133,7 @@ func TestUnmarshal(t *testing.T) {
 	// IMPORTANT: 综上所述
 	// 1. 传入参数时候取地址是最保险的
 	// 2. 如果是通过 any hold 的话，需要确保 hold 的不能是 not-ptr / nil-ptr ，否则会丢失具体类型
+	//    注意这里面提到的 any hold 严格来说是 interface hold
 }
 
 // 这个范型方法可以直接规避掉上述问题，但是它只能是反序列化到一个空的结构体上
