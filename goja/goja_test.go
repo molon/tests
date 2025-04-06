@@ -101,7 +101,7 @@ func WrapRun(
 	})
 	defer func() {
 		if !stop() {
-			interrupted = true
+			interrupted = true // TODO: errors.Join 一下 ?
 		}
 	}()
 
