@@ -83,7 +83,7 @@ func TestAssociation(t *testing.T) {
 				{AddressLine: "456 Avenue"},
 			},
 		}
-		require.NoError(t, db.Omit(clause.Associations).Create(&user).Error)
+		require.NoError(t, db.Omit(clause.Associations).Create(&user).Error) // 不会进行关联创建
 		require.NoError(t, db.Where("name = ?", "Alice").First(&user).Error)
 		require.ErrorIs(t, db.Where("address_line = ?", "123 Street").First(&user.Addresses).Error, gorm.ErrRecordNotFound)
 
@@ -91,6 +91,7 @@ func TestAssociation(t *testing.T) {
 		require.NoError(t, db.Exec("TRUNCATE TABLE addresses").Error)
 	}
 
+	// 测试关联更新
 	{
 		user := User{
 			Name: "Alice",
@@ -99,7 +100,7 @@ func TestAssociation(t *testing.T) {
 				{AddressLine: "456 Avenue"},
 			},
 		}
-		require.NoError(t, db.Save(&user).Error)
+		require.NoError(t, db.Save(&user).Error) // 会进行关联创建
 		require.NoError(t, db.Where("name = ?", "Alice").First(&user).Error)
 		require.NoError(t, db.Where("address_line = ?", "123 Street").First(&user.Addresses).Error)
 
@@ -120,25 +121,8 @@ func TestAssociation(t *testing.T) {
 		// 不会进行关联更新，还是 .Omit(clause.Associations) 的优先级会更高，这很好
 		firstAddress.AddressLine = "666 Boulevard"
 		user.Addresses = []*Address{firstAddress}
-		require.NoError(t, db.Session(&gorm.Session{FullSaveAssociations: true}).Omit(clause.Associations).Save(&user).Error)
+		require.NoError(t, db.Omit(clause.Associations).Session(&gorm.Session{FullSaveAssociations: true}).Save(&user).Error)
 		require.ErrorIs(t, db.Where("address_line = ?", "666 Boulevard").First(&user.Addresses).Error, gorm.ErrRecordNotFound)
-
-		require.NoError(t, db.Exec("TRUNCATE TABLE users").Error)
-		require.NoError(t, db.Exec("TRUNCATE TABLE addresses").Error)
-	}
-
-	// with Omit(clause.Associations)
-	{
-		user := User{
-			Name: "Alice",
-			Addresses: []*Address{
-				{AddressLine: "123 Street"},
-				{AddressLine: "456 Avenue"},
-			},
-		}
-		require.NoError(t, db.Omit(clause.Associations).Save(&user).Error)
-		require.NoError(t, db.Where("name = ?", "Alice").First(&user).Error)
-		require.ErrorIs(t, db.Where("address_line = ?", "123 Street").First(&user.Addresses).Error, gorm.ErrRecordNotFound)
 
 		require.NoError(t, db.Exec("TRUNCATE TABLE users").Error)
 		require.NoError(t, db.Exec("TRUNCATE TABLE addresses").Error)
@@ -172,7 +156,7 @@ func TestAssociation(t *testing.T) {
 		}
 		require.NoError(t, db.Save(&user).Error)
 
-		require.NoError(t, db.Select(clause.Associations).Omit(clause.Associations).Delete(&user).Error) // 不会进行关联删除，后者优先级更高
+		require.NoError(t, db.Omit(clause.Associations).Select(clause.Associations).Delete(&user).Error) // 不会进行关联删除，Omit 优先级更高
 		require.NoError(t, db.First(&user.Addresses).Error)
 
 		require.NoError(t, db.Exec("TRUNCATE TABLE users").Error)
@@ -385,6 +369,7 @@ func TestOmitAssociationsByBeforeCallbacks(t *testing.T) {
 	// db.Callback().Delete().Before("gorm:delete_before_associations").Register("omit_associations", omitAssociations)
 	// db.Callback().Update().Before("gorm:save_before_associations").Register("omit_associations", omitAssociations)
 
+	// 还是推荐这种方案，其实还是自动遵循了 Omit 的方案，比较自然。
 	db.Callback().Create().Before("gorm:before_create").Register("omit_associations", omitAssociations)
 	db.Callback().Delete().Before("gorm:before_delete").Register("omit_associations", omitAssociations)
 	db.Callback().Update().Before("gorm:before_update").Register("omit_associations", omitAssociations)
