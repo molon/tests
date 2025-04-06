@@ -136,11 +136,11 @@ func TestUnmarshal(t *testing.T) {
 
 	// IMPORTANT: 综上所述
 	// 1. 传入参数时候取地址是最保险的
-	// 2. 如果是通过 any hold 的话，需要确保 hold 的不能是 not-ptr / nil-ptr ，否则会丢失具体类型
-	//    注意这里面提到的 any hold 严格来说是 interface hold
+	// 2. 如果是通过 iface hold 的话，需要确保 hold 的不能是 not-ptr / nil-ptr ，否则会丢失具体类型
 }
 
-// 这个范型方法可以直接规避掉上述问题，但是它只能是反序列化到一个空的结构体上
+// 这个范型方法可以直接规避掉上述问题，因为这里强制取了一次地址，并且即使 T 为 iface ，你也无法为其指定类型，最终结果符合直觉。
+// 但是它只能是反序列化到一个空的结构体上
 func Unmarshal[T any](data []byte) (T, error) {
 	var v T
 	err := json.Unmarshal(data, &v)
@@ -160,6 +160,14 @@ func TestUnmarshalGeneric(t *testing.T) {
 	newPerson, err := Unmarshal[*Person](data)
 	assert.NoError(t, err)
 	assert.Equal(t, &Person{Name: "Alice", Age: 30}, newPerson)
+
+	d, err := Unmarshal[any](data)
+	assert.NoError(t, err)
+	assert.Equal(t, map[string]any{"name": "Alice", "age": float64(30)}, d)
+
+	e, err := Unmarshal[error](data)
+	assert.ErrorContains(t, err, "json: cannot unmarshal object into Go value of type error")
+	assert.Nil(t, e)
 }
 
 type A struct {
