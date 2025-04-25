@@ -52,6 +52,10 @@ func TestUnmarshal(t *testing.T) {
 		var vv **Foo
 		assert.ErrorContains(t, json.Unmarshal([]byte(`{"a":1}`), vv), `json: Unmarshal(nil`)
 
+		// 给空的多层指针再取一次地址，也可以正常反序列化
+		assert.NoError(t, json.Unmarshal([]byte(`{"a":1}`), &vv))
+		assert.Equal(t, &Foo{A: 1}, *vv)
+
 		// 为什么给空指针再取一次地址就可以呢？
 		// 因为 json.Unmarshal 里是通过 reflect.ValueOf(v).IsNil() 来判断的
 		// 而可以理解为给空指针取地址得到的变量已经不是 nil 了，只是它的值是一个 nil 的指针，它不是 nil
