@@ -12,23 +12,6 @@ import (
 )
 
 // 目标是调研 gorm 默认的对关联数据的写行为，并且调研如何移除这个默认行为
-
-var db *gorm.DB
-
-func TestMain(m *testing.M) {
-	env, err := testenv.New().DBEnable(true).SetUp()
-	if err != nil {
-		panic(err)
-	}
-	defer env.TearDown()
-
-	db = env.DB
-	db.Logger = db.Logger.LogMode(logger.Info)
-	db.Config.DisableForeignKeyConstraintWhenMigrating = true
-
-	m.Run()
-}
-
 type User struct {
 	Model
 	Name      string
