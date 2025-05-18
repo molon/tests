@@ -96,6 +96,34 @@ func TestHooks(t *testing.T) {
 		// t.Logf("UpdatedAt: %v", user.UpdatedAt)
 
 		user.cleanLogs()
+		origUpdatedAt = user.UpdatedAt
+		require.NoError(t, db.Model(&user).Omit("updated_at").Updates(map[string]any{
+			"name": "Frank",
+		}).Error)
+		require.Len(t, user.logs, 2)                    // 会触发 BeforeSave 和 BeforeUpdate
+		require.Equal(t, origUpdatedAt, user.UpdatedAt) // 不会更新 UpdatedAt
+		require.Equal(t, user.Name, "Frank")            // 会修改字段
+
+		{
+			user := &UserWithHook{}
+			require.NoError(t, db.Where("name = ?", "Frank").First(user).Error)
+			require.Equal(t, "Frank", user.Name)
+			require.Equal(t, origUpdatedAt, user.UpdatedAt) // 确实没有更新 UpdatedAt
+		}
+
+		{
+			require.NoError(t, db.Model(&UserWithHook{}).
+				Where("name = ?", "Frank").
+				Updates(map[string]any{
+					"name": "George",
+				}).Error)
+			user := &UserWithHook{}
+			require.NoError(t, db.Where("name = ?", "George").First(user).Error)
+			require.Equal(t, "George", user.Name)
+			require.NotEqual(t, origUpdatedAt, user.UpdatedAt) // 即使不以主键更新，也会更新 UpdatedAt
+		}
+
+		user.cleanLogs()
 		require.NoError(t, db.Delete(&user).Error)
 		require.Len(t, user.logs, 1)
 		require.Equal(t, "BeforeDelete", user.logs[0])
