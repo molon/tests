@@ -109,6 +109,12 @@ func TestNew(t *testing.T) {
 		p := reflect.New(reflect.TypeOf(a)).Elem()
 		b := p.Interface().(*Foo)
 		assert.Nil(t, b) // 这里 b 是 nil ，因为 New 创建的是一个空指针
+
+		{
+			p := reflect.New(reflect.TypeOf(a).Elem()).Elem()
+			b := p.Interface().(Foo)
+			assert.Equal(t, Foo{A: 0, B: ""}, b)
+		}
 	}
 }
 
